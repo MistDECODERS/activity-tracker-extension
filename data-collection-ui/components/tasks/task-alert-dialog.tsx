@@ -39,7 +39,7 @@ export function TaskAlertDialog({
   const [isUpdating, setIsUpdating] = useState(false);
 
   const handleProceed = async () => {
-    if (totalInProgressCount > 0) {
+    if (totalInProgressCount > 0 && !isInProgress) {
       toast.warning(
         `You have another task in progress. Please complete it or 
         stop the progress before starting a new one.`
