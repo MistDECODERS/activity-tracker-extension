@@ -219,6 +219,7 @@ export function App() {
 
       // Force refresh auth status
       const updatedAuth = await refreshAuthStatus();
+      console.log(updatedAuth)
       handleAuthStatusUpdate(updatedAuth);
 
       toast.success("Auth status refreshed");

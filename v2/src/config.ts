@@ -1,4 +1,4 @@
-const HOSTED_URL = "https://activity-tracker-extension-three.vercel.app";
+const HOSTED_URL = "https://activity-tracker-extension-git-main-mist-decoders-projects.vercel.app";
 const DEVELOPMENT_URL = "http://localhost:3000";
 
 export const config = {
