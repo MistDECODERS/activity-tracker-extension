@@ -39,13 +39,13 @@ export async function login(authData: AuthData) {
     .eq("email", authData.email)
     .limit(1)
     .single();
-
   if (!existingUser.data) {
     const name = userData.user.user_metadata.fullName as string;
     const { error } = await supabase.from("user_profiles").insert({
       id: userData.user.id,
       email: authData.email,
       fullName: name,
+      role: 'user', // Default role for new users
     });
 
     printIfDev({

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Sidebar } from "@/components/shared/sidebar";
 import { ThemeToggle } from "@/components/shared/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +15,6 @@ import {
   Loader2,
   ListTodo,
   Target,
-  TrendingUp,
 } from "lucide-react";
 import Link from "next/link";
 import { createClient } from "@/utils/supabase/client";
@@ -26,18 +24,18 @@ export default function Dashboard() {
   const { taskStatuses, resetAllStatuses, isLoading, isResetting } =
     useTaskStatus();
   const [mounted, setMounted] = useState(false);
-  const supbase = createClient();
+  const supabase = createClient();
   const [user, setUser] = useState<User | null>(null);
 
   // Ensure we only render after hydration to avoid hydration mismatch
   useEffect(() => {
     setMounted(true);
     const fetchUser = async () => {
-      const { data } = await supbase.auth.getUser();
+      const { data } = await supabase.auth.getUser();
       setUser(data.user);
     };
     fetchUser();
-  }, [supbase]);
+  }, [supabase]);
 
   // Calculate statistics
   const totalTasks = taskCategories.reduce(
@@ -207,7 +205,7 @@ export default function Dashboard() {
                         ? "border-green-500/30"
                         : category.percentage >= 50
                         ? "border-warning/50 bg-warning/20"
-                        : "border-destructive/20"
+                        : "border-destructive/20 bg-popover"
                     }
                   >
                     <CardHeader className="pb-2">

@@ -219,7 +219,7 @@ export function App() {
 
       // Force refresh auth status
       const updatedAuth = await refreshAuthStatus();
-      console.log(updatedAuth)
+      console.log(updatedAuth);
       handleAuthStatusUpdate(updatedAuth);
 
       toast.success("Auth status refreshed");
@@ -262,24 +262,23 @@ export function App() {
                 <ListIcon className="h-4 w-4" />
                 <span className="sr-only">Session List</span>
               </Button>
-
-              <Button
-                onClick={handleManualRefresh}
-                size="sm"
-                variant="ghost"
-                className="h-8 w-8 p-0"
-                title="Refresh Auth Status"
-                disabled={isRefreshing}
-              >
-                {isRefreshing ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4" />
-                )}
-                <span className="sr-only">Refresh Auth Status</span>
-              </Button>
             </>
           )}
+          <Button
+            onClick={handleManualRefresh}
+            size="sm"
+            variant="ghost"
+            className="h-8 w-8 p-0"
+            title="Refresh Auth Status"
+            disabled={isRefreshing}
+          >
+            {isRefreshing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            <span className="sr-only">Refresh Auth Status</span>
+          </Button>
         </div>
       </div>
 

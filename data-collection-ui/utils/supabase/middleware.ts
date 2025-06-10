@@ -39,6 +39,30 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Check if user is trying to access admin routes
+  if (request.nextUrl.pathname.startsWith("/dashboard/admin")) {
+    if (!user) {
+      // User not authenticated, redirect to auth
+      const url = request.nextUrl.clone();
+      url.pathname = "/auth";
+      return NextResponse.redirect(url);
+    }
+
+    // Check if user has admin role
+    const { data: userProfile } = await supabase
+      .from("user_profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    if (!userProfile || userProfile.role !== "admin") {
+      // User doesn't have admin role, redirect to dashboard
+      const url = request.nextUrl.clone();
+      url.pathname = "/dashboard";
+      return NextResponse.redirect(url);
+    }
+  }
+
   if (
     !user &&
     !request.nextUrl.pathname.startsWith("/login") &&
@@ -53,7 +77,7 @@ export async function updateSession(request: NextRequest) {
   }
 
   // IMPORTANT: You *must* return the supabaseResponse object as it is.
-  // If you're creating a new response objec t with NextResponse.next() make sure to:
+  // If you're creating a new response object with NextResponse.next() make sure to:
   // 1. Pass the request in it, like so:
   //    const myNewResponse = NextResponse.next({ request })
   // 2. Copy over the cookies, like so:
