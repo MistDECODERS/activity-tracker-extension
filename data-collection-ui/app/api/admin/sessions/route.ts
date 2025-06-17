@@ -29,24 +29,28 @@ export async function GET() {
       );
     }
 
-    // Get all user profiles with task_statuses (this contains all sessions)
-    const { data: userProfiles } = await supabase
-      .from("user_profiles")
-      .select("id, email, fullName, task_statuses");
+    // Parallel queries for better performance
+    const [{ data: userProfiles }, { data: completedTasks }] =
+      await Promise.all([
+        // Get all user profiles with task_statuses
+        supabase
+          .from("user_profiles")
+          .select("id, email, fullName, task_statuses"),
 
-    // Get completed tasks from tasks table for created_at timestamps
-    // The fileId field contains the task name (e.g., "ecom-1")
-    const { data: completedTasks } = await supabase
-      .from("tasks")
-      .select("id, user_id, created_at, path");
+        // Get completed tasks with file_size (no need for storage calls)
+        supabase
+          .from("tasks")
+          .select("id, user_id, created_at, path, file_size"),
+      ]);
 
-    // Create lookup map for completed tasks using fileId (task name)
+    // Create lookup map for completed tasks using task name + user_id
     const completedTasksMap = new Map();
     if (completedTasks) {
       for (const task of completedTasks) {
-        // Extract task name from fileId (e.g., "ecom-1" from "ecom-1.json" or just "ecom-1")
+        // Extract task name from path (e.g., "ecom-1" from "user-id/ecom-1.json")
         const taskName = task.path?.split("/").pop()?.replace(".json", "");
         if (taskName) {
+          // Use taskName + user_id as key for unique identification
           completedTasksMap.set(taskName + task.user_id, task);
         }
       }
@@ -62,44 +66,29 @@ export async function GET() {
       for (const [taskId, status] of Object.entries(
         userProfile.task_statuses
       )) {
-        // Check for recording file only for completed tasks
-        let recordingFile = null;
-        if (status === "completed") {
-          try {
-            const { data: files } = await supabase.storage
-              .from("recordings")
-              .list(userProfile.id, { limit: 100 });
-
-            if (files) {
-              // Look for file with taskId in name (e.g., "ecom-1.json")
-              recordingFile = files.find((file) => file.name.includes(taskId));
-            }
-          } catch (error) {
-            console.warn(`Storage access error for task ${taskId}:`, error);
-          }
-        }
-
-        // Get start time - for completed tasks use tasks table, lookup by taskId (fileId)
+        // Get start time and file size from tasks table (for completed tasks)
         let startTime = null;
+        let fileSize = null;
+
         const completedTask = completedTasksMap.get(taskId + userProfile.id);
         if (completedTask) {
           startTime = completedTask.created_at;
+          fileSize = completedTask.file_size; // Use file_size from tasks table
         }
 
         sessions.push({
-          id: `session-${taskId}`,
+          id: `session-${taskId}-${userProfile.id}`, // More unique ID
           userId: userProfile.id,
           userEmail: userProfile.email,
           userName: userProfile.fullName,
           taskId,
           status,
           startTime,
-          fileSize: recordingFile?.metadata?.size || null,
+          fileSize, // Now from database instead of storage metadata
         });
       }
     }
 
-    // Filter out sessions with null startTime (in-progress sessions) from sorting
     // Sort by most recent first, putting in-progress sessions at the end
     sessions.sort((a, b) => {
       if (!a.startTime && !b.startTime) return 0;
@@ -153,47 +142,65 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Delete recording file from storage if it exists
-    try {
-      const { data: files } = await supabase.storage
-        .from("recordings")
-        .list(userId);
+    // Parallel operations for better performance
+    const [{ data: userProfile }, { data: taskToDelete }] = await Promise.all([
+      // Get user profile for task_statuses update
+      supabase
+        .from("user_profiles")
+        .select("task_statuses")
+        .eq("id", userId)
+        .single(),
 
-      // Look for file with taskId in name (e.g., "ecom-1.json")
-      const recordingFile = files?.find((file) => file.name.includes(taskId));
-      if (recordingFile) {
-        await supabase.storage
-          .from("recordings")
-          .remove([`${userId}/${recordingFile.name}`]);
-      }
-    } catch (storageError) {
-      console.error("Error deleting recording file:", storageError);
-    }
+      // Get task info to find the file path for storage deletion
+      supabase
+        .from("tasks")
+        .select("path")
+        .like("path", `%/${taskId}.json`)
+        .eq("user_id", userId)
+        .single(),
+    ]);
 
-    // Remove task from user's task_statuses
-    const { data: userProfile } = await supabase
-      .from("user_profiles")
-      .select("task_statuses")
-      .eq("id", userId)
-      .single();
+    // Parallel cleanup operations
+    const cleanupPromises = [];
 
+    // 1. Remove task from user's task_statuses
     if (userProfile?.task_statuses) {
       const updatedTaskStatuses = { ...userProfile.task_statuses };
       delete updatedTaskStatuses[taskId];
 
-      await supabase
-        .from("user_profiles")
-        .update({ task_statuses: updatedTaskStatuses })
-        .eq("id", userId);
+      cleanupPromises.push(
+        supabase
+          .from("user_profiles")
+          .update({ task_statuses: updatedTaskStatuses })
+          .eq("id", userId)
+      );
     }
 
-    // Delete from tasks table if it exists (for completed tasks)
-    // Find task by fileId (which matches taskId) and user_id
-    await supabase
-      .from("tasks")
-      .delete()
-      .eq("fileId", `${taskId}.json`)
-      .eq("user_id", userId);
+    // 2. Delete from tasks table
+    cleanupPromises.push(
+      supabase
+        .from("tasks")
+        .delete()
+        .like("path", `%/${taskId}.json`)
+        .eq("user_id", userId)
+    );
+
+    // 3. Delete recording file from storage (if exists)
+    if (taskToDelete?.path) {
+      cleanupPromises.push(
+        supabase.storage.from("recordings").remove([taskToDelete.path])
+      );
+    }
+
+    // Execute all cleanup operations in parallel
+    const results = await Promise.allSettled(cleanupPromises);
+
+    // Log any errors but don't fail the request
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        console.error(`Cleanup operation ${index} failed:`, result.reason);
+      }
+    });
 
     return NextResponse.json({ message: "Session deleted successfully" });
   } catch (error) {

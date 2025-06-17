@@ -47,11 +47,15 @@ export const POST = async (request: NextRequest) => {
       return NextResponse.json("No data returned from upload", { status: 500 });
     }
 
+    // get the size of the uploaded file
+    const fileSize = newBlob.size;
+
     const inserted = await insertUploadDataToTaskTable({
       userId: sessionData.userId,
       taskId: data.id,
       path: data.path,
       fullPath: data.fullPath,
+      fileSize: fileSize,
     });
 
     if (!inserted) {

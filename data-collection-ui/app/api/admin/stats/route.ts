@@ -29,80 +29,76 @@ export async function GET() {
       );
     }
 
-    // Get total users
-    const { count: totalUsers } = await supabase
-      .from("user_profiles")
-      .select("*", { count: "exact", head: true });
+    // Parallel queries for better performance
+    const [
+      { count: totalUsers },
+      { count: totalTasks },
+      { data: fileSizes },
+      { data: usersWithTasks },
+      { data: recentUsers },
+    ] = await Promise.all([
+      // Total users
+      supabase
+        .from("user_profiles")
+        .select("*", { count: "exact", head: true }),
 
-    // Get total tasks
-    const { count: totalTasks } = await supabase
-      .from("tasks")
-      .select("*", { count: "exact", head: true });
+      // Total tasks
+      supabase.from("tasks").select("*", { count: "exact", head: true }),
 
-    // Get storage usage from bucket
+      // File sizes (only non-null values)
+      supabase.from("tasks").select("file_size").not("file_size", "is", null),
+
+      // Users with task statuses (for active sessions)
+      supabase
+        .from("user_profiles")
+        .select("task_statuses")
+        .not("task_statuses", "is", null),
+
+      // Recent users
+      supabase
+        .from("user_profiles")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(5),
+    ]);
+
+    // Calculate storage usage efficiently
     let storageUsed = 0;
-    let totalRecordings = 0;
-
-    try {
-      const { data: userFolders } = await supabase.storage
-        .from("recordings")
-        .list("", { limit: 1000 });
-
-      if (userFolders) {
-        for (const folder of userFolders) {
-          const { data: files } = await supabase.storage
-            .from("recordings")
-            .list(folder.name, { limit: 1000 });
-
-          if (files) {
-            totalRecordings += files.length;
-            storageUsed += files.reduce(
-              (total, file) => total + (file.metadata?.size || 0),
-              0
-            );
-          }
-        }
-      }
-    } catch (storageError) {
-      console.error("Error calculating storage usage:", storageError);
+    if (fileSizes) {
+      storageUsed = fileSizes.reduce(
+        (total, task) => total + (task.file_size || 0),
+        0
+      );
     }
 
-    // Convert bytes to MB (matching your function)
+    // Convert bytes to MB
     const storageGB = (storageUsed / (1024 * 1024)).toFixed(2);
 
-    // Count in-progress tasks across all users
-    const { data: usersWithTasks } = await supabase
-      .from("user_profiles")
-      .select("task_statuses")
-      .not("task_statuses", "is", null);
-
+    // Count active sessions efficiently
     let activeSessions = 0;
     if (usersWithTasks) {
-      for (const user of usersWithTasks) {
+      activeSessions = usersWithTasks.reduce((total, user) => {
         if (user.task_statuses) {
-          // Count tasks with "in-progress" status
-          for (const status of Object.values(user.task_statuses)) {
-            if (status === "in-progress") {
-              activeSessions++;
-            }
-          }
+          const inProgressCount = Object.values(user.task_statuses).filter(
+            (status) => status === "in-progress"
+          ).length;
+          return total + inProgressCount;
         }
-      }
+        return total;
+      }, 0);
     }
-
-    // System health checks
-    const systemHealth = {
-      database: true, // If we got here, database is working
-      storage: true, // Assume storage is working if no errors above
-    };
 
     const stats = {
       totalUsers: totalUsers || 0,
       totalTasks: totalTasks || 0,
       storageUsed: `${storageGB} MB`,
       activeSessions,
-      totalRecordings,
-      systemHealth,
+      totalRecordings: totalTasks || 0,
+      recentUsers: recentUsers || [],
+      systemHealth: {
+        database: true,
+        storage: true,
+      },
     };
 
     return NextResponse.json(stats);

@@ -6,11 +6,13 @@ export const insertUploadDataToTaskTable = async ({
   userId,
   path,
   fullPath,
+  fileSize,
 }: {
   taskId: string;
   userId: string;
   path: string;
   fullPath: string;
+  fileSize: number;
 }): Promise<boolean> => {
   const supabase = await createClient();
 
@@ -21,6 +23,7 @@ export const insertUploadDataToTaskTable = async ({
       user_id: userId,
       path,
       fullPath,
+      file_size: fileSize,
     })
     .select();
 
